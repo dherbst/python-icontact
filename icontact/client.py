@@ -1,4 +1,4 @@
-# Copyright 2008   Online Agility (www.onlineagility.com)
+# Copyright 2008 Online Agility (www.onlineagility.com)
 # 
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -11,49 +11,39 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-"""
-iContact API client library.
-
-The module exposes the IContactClient class, which supports most iContact
-API operations
-
-Requirements
-------------
-- Python 2.5+
-- dateutil library (http://labix.org/python-dateutil)
-- Python logging
-
-References
-----------
-iContact API documentation:
-http://app.intellicontact.com/icp/pub/api/doc/api.html
-
-To register an API client application, or to look up
-the API Key and Shared Secret credentials for your
-application, log in to the iContact web site and visit:
-http://www.icontact.com/icp/core/registerapp    
-
-To grant access to an API application and set an API client
-password, visit: http://www.icontact.com/icp/core/externallogin
-
-Author
-------
-James Murty
-"""
 import md5
 import random
 import time
 import httplib
 import urllib
 import urlparse
-from dateutil.parser import parse
-from dateutil.relativedelta import relativedelta
+import logging
+
 from datetime import datetime, tzinfo, timedelta
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
-import logging
 
-class IContactClient:
+from dateutil.parser import parse
+from dateutil.relativedelta import relativedelta
+
+
+class ExcessiveRetriesException(Exception):
+    """
+    A standard exception that represents a potentially transient fault 
+    where an an iContact API client fails to perform an operation more
+    than `self.max_retry_count` times.
+    """
+    pass
+
+
+class ClientException(Exception):
+    """
+    A standard exception that represents an unrecoverable fault
+    during an iContact API operation.
+    """
+    pass
+
+class IContactClient(object):
     """Perform operations on the iContact API."""
     
     ICONTACT_API_URL = 'http://api.icontact.com/icp/core/api/v1.0/'
@@ -101,7 +91,7 @@ class IContactClient:
         # Track number of retries we have performed
         self.retry_count = 0
         
-    def __calc_signature(self, call_path, params):
+    def _calc_signature(self, call_path, params):
         """
         Calculates a signature value to authorize an iContact API call. 
 
@@ -126,7 +116,7 @@ class IContactClient:
         self.log.debug(u"String to sign: '%s' Signature: '%s'" % (string_to_sign, signature))
         return signature
         
-    def __do_request(self, call_path, parameters={}):
+    def _do_request(self, call_path, parameters={}):
         """
         Performs an API request and returns the resultant XML document as an
         xml.etree.ElementTree node. An Exception is thrown if the operation 
@@ -157,7 +147,7 @@ class IContactClient:
             params.update(api_tok=self.token, api_seq=self.sequence)
         
         # Generate the request's signature and add to parameters
-        params.update(api_sig=self.__calc_signature(call_path, params))
+        params.update(api_sig=self._calc_signature(call_path, params))
         
         # PUT messages include the 'api_put' parameter
         if params.has_key('api_put'):
@@ -194,7 +184,7 @@ class IContactClient:
                         "will perform retry %d of %d after a short delay" \
                         % (self.retry_count, self.max_retry_count))
                 time.sleep(random.random() * self.retry_count) # Simplistic retry backoff algorithm
-                return self.__do_request(call_path, params)
+                return self._do_request(call_path, params)
             elif error_code == '401':
                 # Hacky test of the reason for auth failure. We can only recover from auth failures
                 # due to invalid/expired tokens. Other situations, such as an auth failure caused 
@@ -209,7 +199,7 @@ class IContactClient:
                 self.retry_count += 1
                 self.log.warn(u"Login attempt %d of %d" % (self.retry_count, self.max_retry_count))
                 self.login()
-                return self.__do_request(call_path, params)
+                return self._do_request(call_path, params)
             else:
                 raise ClientException("Unrecoverable error for %s: %s - %s" %\
                     (call_path, error_code, xml.find('error_message').text))
@@ -217,7 +207,7 @@ class IContactClient:
         self.retry_count = 0                
         return xml        
 
-    def __parse_stats(self, node):
+    def _parse_stats(self, node):
         """
         Parses statistics information from a 'stats' XML node that will
         be present in an iContact API response to the 
@@ -274,7 +264,7 @@ class IContactClient:
         NOTE: This method cannot log in to iContact accounts with multiple 
         client folders.
         """
-        xml = self.__do_request('auth/login/%s/%s' % (self.username, self.md5_password))
+        xml = self._do_request('auth/login/%s/%s' % (self.username, self.md5_password))
         
         # Store the authentication token and sequence values for use in subsequent operations.
         self.token = xml.find('auth/token').text
@@ -293,7 +283,7 @@ class IContactClient:
         a list identifier (int) and URL fragment (str). For example::
           [(1, '/list/1'), (3, '/list/3')]
         """
-        xml = self.__do_request('lists')
+        xml = self._do_request('lists')
         lists = []
         for list in xml.findall('lists/list'):
             id = int(list.get('id'))
@@ -312,7 +302,7 @@ class IContactClient:
         - welcome_text (str)       - optin_html (str)
         - optin_text (str)
         """
-        xml = self.__do_request('list/%s' % list_id)
+        xml = self._do_request('list/%s' % list_id)
         
         list = xml.find('list')
         return dict(id=int(list.get('id')) , href=list.get('{%s}href' % self.NAMESPACE), \
@@ -331,7 +321,7 @@ class IContactClient:
         a campaign identifier (int) and URL fragment. For example::
           [(1, '/campaign/1'), (3, '/campaign/3')]
         """
-        xml = self.__do_request('campaigns')
+        xml = self._do_request('campaigns')
         lists = []
         for list in xml.findall('campaigns/campaign'):
             id = int(list.get('id'))
@@ -351,7 +341,7 @@ class IContactClient:
         - country (str)             - archivebydefault (Boolean)              
         - publicarchiveurl (str)    - useaccountaddress (Boolean)
         """
-        xml = self.__do_request('campaign/%s' % campaign_id)
+        xml = self._do_request('campaign/%s' % campaign_id)
 
         campaign = xml.find('campaign')
         return dict(id=int(campaign.get('id')), \
@@ -388,7 +378,7 @@ class IContactClient:
           fname=terry
           state=nsw
         """
-        xml = self.__do_request('contacts', kwargs)
+        xml = self._do_request('contacts', kwargs)
         
         contacts = []
         for list in xml.findall('contact'):
@@ -411,7 +401,7 @@ class IContactClient:
         - phone (str)               - fax (str)              
         - custom_fields_href (str)  - subscriptions_href (str)
         """
-        xml = self.__do_request('contact/%s' % contact_id)
+        xml = self._do_request('contact/%s' % contact_id)
 
         contact = xml.find('contact')
         return dict(
@@ -492,7 +482,7 @@ class IContactClient:
         maybe_add_node('phone')    
         maybe_add_node('fax')    
                 
-        xml = self.__do_request(call_path, {'api_put': ElementTree.tostring(contact)})
+        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(contact)})
         contact = xml.find('result/contact')
         return (int(contact.get('id')), contact.get('{%s}href' % self.NAMESPACE))
         
@@ -509,7 +499,7 @@ class IContactClient:
         s = SubElement(root, "status")
         s.text = subscribed and 'subscribed' or 'unsubscribed'
 
-        xml = self.__do_request(call_path, {'api_put': ElementTree.tostring(root)})
+        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(root)})
         subscription = xml.find('result/subscription')
         return (int(subscription.get('id')), subscription.get('{%s}href' % self.NAMESPACE))        
         
@@ -520,7 +510,7 @@ class IContactClient:
         - name (str)                - public_name (str)
         - type (str)                - value (str)
         """
-        xml = self.__do_request('contact/%s/custom_fields' % contact_id)
+        xml = self._do_request('contact/%s/custom_fields' % contact_id)
 
         fields = []
         for field in xml.findall('contact/custom_fields/custom_field'):
@@ -542,7 +532,7 @@ class IContactClient:
         call_path = 'contact/%s/subscriptions' % contact_id
         if list_id:
             call_path += '/%s' % list_id
-        xml = self.__do_request(call_path)
+        xml = self._do_request(call_path)
 
         subs = []
         for sub in xml.findall('contact/subscription'):
@@ -562,7 +552,7 @@ class IContactClient:
         NOTE: This API method is not documented in the official iContact
         API documentation, but it works...
         """
-        xml = self.__do_request('message/%s' % message_id)
+        xml = self._do_request('message/%s' % message_id)
         message = xml.find('message')
         return dict(
             id=int(message.get('id')),
@@ -602,7 +592,7 @@ class IContactClient:
         s = SubElement(root, "html_body")
         s.text = body_html
 
-        xml = self.__do_request('message', {'api_put': ElementTree.tostring(root)})
+        xml = self._do_request('message', {'api_put': ElementTree.tostring(root)})
         
         message = xml.find('result/message')
         return (int(message.get('id')), message.get('{%s}href' % self.NAMESPACE))
@@ -654,7 +644,7 @@ class IContactClient:
         # We could add "feed" nodes here, if we need these?
         
         call_path = 'message/%s/sending_info' % message_id
-        xml = self.__do_request(call_path, {'api_put': ElementTree.tostring(root)})        
+        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(root)})        
         return (message_id, xml.find('results').get('{%s}href' % self.NAMESPACE))
         
     def message_delivery_details(self, message_id):
@@ -682,10 +672,10 @@ class IContactClient:
         NOTE: This API method is not documented in the official iContact
         API documentation, but it works...
         """
-        xml = self.__do_request('message/%s/sending_info/summary' % message_id)
+        xml = self._do_request('message/%s/sending_info/summary' % message_id)
         
         stats_node = xml.find('message/sending_info/stats')
-        results = self.__parse_stats(stats_node)
+        results = self._parse_stats(stats_node)
         
         channels = []
         for c in xml.findall('.//channels'):
@@ -727,10 +717,10 @@ class IContactClient:
         call_path = 'message/%s/stats' % message_id
         if kind:
             call_path += '/%s' % kind
-        xml = self.__do_request(call_path)
+        xml = self._do_request(call_path)
         
         stats_node = xml.find('message/stats')
-        results = self.__parse_stats(stats_node)        
+        results = self._parse_stats(stats_node)        
         return results
 
 
@@ -765,117 +755,3 @@ class FixedOffset(tzinfo):
 
     def dst(self, dt):
         return timedelta(0)
-
-
-class ExcessiveRetriesException(Exception):
-    """
-    A standard exception that represents a potentially transient fault 
-    where an an iContact API client fails to perform an operation more
-    than `self.max_retry_count` times.
-    """
-    pass
-
-
-class ClientException(Exception):
-    """
-    A standard exception that represents an unrecoverable fault
-    during an iContact API operation.
-    """
-    pass
-
-
-def _test():
-    """
-    >>> import logging.config
-    >>> logging.basicConfig( \
-            level=logging.WARNING, \
-            format='%(levelname)-5s [%(name)s] %(asctime)s: %(message)s')        
-    
-    Set your iContact credentials:
-    >>> USERNAME = None
-    >>> API_KEY = None
-    >>> SHARED_SECRET = None
-    >>> APP_PASSWORD = None
-    
-    Create a client object to interact with the iContact API:
-    >>> client = IContactClient( \
-                    api_key=API_KEY, \
-                    shared_secret=SHARED_SECRET, \
-                    username=USERNAME, \
-                    md5_password=md5.new(APP_PASSWORD).hexdigest())
-     
-    Force a manual login. This isn't really necessary, as invoking any
-    API operation will login automatically if necessary:
-    >>> token, sequence = client.login()
-
-    Lookup your iContact Campaigns:
-    >>> campaigns = client.campaigns()
-    
-    Lookup the details of a specific Campaign:
-    >>> campaign_id = campaigns[0][0]
-    >>> campaign = client.campaign(campaign_id)
-
-    Lookup your iContact Lists:
-    >>> ic_lists = client.lists()
-    
-    Lookup details of a specific List:
-    >>> list_id = ic_lists[0][0]
-    >>> ic_list = client.list(list_id)
-    
-    Create a contact:
-    >>> contact_id, url = client.add_update_contact( \
-            dict(email='john.doe@nowhere.com', fname='John', lname='Doe'))    
-        
-    Update an existing contact:
-    >>> contact = client.contact(contact_id)
-    >>> contact['fname'] = 'Jane'
-    >>> contact_id, url = client.add_update_contact(contact)
-
-    Search for contacts based on an email address:
-    >>> contacts = client.contacts(email='*@nowhere.com')
-
-    Lookup details for a contact:
-    >>> contact_id = contacts[0][0]
-    >>> contact = client.contact(contact_id)
-    >>> custom_fields = client.contact_custom_fields(contact_id)
-    
-    Lookup a contact's current subscriptions:
-    >>> subs = client.contact_subscriptions(contact_id)    
-    
-    Check whether a contact has a specific subscription:
-    >>> sub = client.contact_subscriptions(contact_id, list_id)    
-
-    Subscribe and unsubscribe a contact to a given List:
-    >>> sub_list_id, url = client.contact_change_subscription(contact_id, list_id, True)    
-    >>> sub_list_id, url = client.contact_change_subscription(contact_id, list_id, False)
-    
-    Create a new email message:
-    >>> message = client.create_message( \
-            campaign_id=campaign_id, \
-            subject='Test Message', \
-            body_html='<h1>Test Message</h1><p>Here is my <em>html</em> body</p>', \
-            body_text="Here is my *text* body")
-
-    Schedule a message to be sent in 10 minutes
-    (be careful with this test, lest you accidentally spam your contacts!):
-    >>> message_id = message[0]
-    >>> # client.schedule_message( \
-    >>> #    message_id=message_id, \
-    >>> #    list_ids=[list_id], \
-    >>> #    archive=False, \
-    >>> #    utc_datetime=datetime.utcnow() + relativedelta(minutes=1))    
-
-    Lookup content of a message:
-    >>> message_lookup = client.message(message_id)
-    
-    Lookup delivery details and statistics for a message (only possible for 
-    sent messages):
-    >>> # delivery_details = client.message_delivery_details(message_id)    
-    >>> # stats = client.message_stats(message_id, 'opens')
-    
-    """
-    import doctest
-    doctest.testmod()    
-
-if __name__=="__main__":
-    _test()
