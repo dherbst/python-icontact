@@ -12,7 +12,7 @@ Requirements
 References
 ----------
 iContact API documentation:
-http://app.intellicontact.com/icp/pub/api/doc/api.html
+http://developer.icontact.com/documentation/icontact-application-programming-interface-api
 
 To register an API client application, or to look up
 the API Key and Shared Secret credentials for your
