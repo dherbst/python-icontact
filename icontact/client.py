@@ -11,11 +11,16 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
+try:
+    from django.utils import simplejson
+except ImportError:
+    import simplejson
 import md5
 import random
 import time
 import httplib
 import urllib
+import urllib2
 import urlparse
 import logging
 
@@ -46,17 +51,16 @@ class ClientException(Exception):
 class IContactClient(object):
     """Perform operations on the iContact API."""
     
-    ICONTACT_API_URL = 'http://api.icontact.com/icp/core/api/v1.0/'
+    #ICONTACT_API_URL = 'https://app.icontact.com/icp/'
+    ICONTACT_API_URL = 'https://app.sandbox.icontact.com/icp/'
     NAMESPACE = 'http://www.w3.org/1999/xlink'
                 
-    def __init__(self, api_key, shared_secret, username, md5_password, 
+    def __init__(self, api_key, username, password, 
         auth_handler=None, max_retry_count=5):
         """
         - api_key: the API Key assigned for the OA iContact client
-        - shared_secret: a shared secret credential assigned to the OA 
-          iContact client.
         - username: the iContact web site login username
-        - password_md5: an MD5 hash of the user's API client password.
+        - password: 
           This is the password registered for the API client, also known 
           as the "API Application Password". It is *not* the standard 
           web site login password.
@@ -74,135 +78,89 @@ class IContactClient(object):
           set_credentials(token,sequence)
         """
         self.api_key = api_key
-        self.shared_secret = shared_secret
+        self.api_version = "2.2"
         self.username = username
-        self.md5_password = md5_password
+        self.password = password
         self.auth_handler = auth_handler
         self.log = logging.getLogger('icontact')
         self.max_retry_count = max_retry_count
-        
-        # Authentication information - (re-)populated by login operation
-        if self.auth_handler:
-            self.token, self.sequence = self.auth_handler.get_credentials()
-        else:
-            self.token = None
-            self.sequence = 0
+
+        self.account_id = None
+        self.client_folder_id = None
         
         # Track number of retries we have performed
         self.retry_count = 0
-        
-    def _calc_signature(self, call_path, params):
-        """
-        Calculates a signature value to authorize an iContact API call. 
 
-        The signature is an MD5 hash of a string combining the 
-        following items with no delimiters:
-        - the Shared Secret for the API application 
-          (`self.shared_secret`)
-        - call_path: the API call path
-        - params: request parameters sorted in alphabetical order
+    def _get_account_id(self):
+        self.account_id = self.account()['accountId']
+        return self.account_id
 
-        A sample API request string that is generated and signed
-        by this method (ignore capitalization, it's only for clarity)::
-          SHAREDSECRETcallpathPARAM1NAMEparam1valuePARAM2NAMEparam2value
+    def _get_client_folder_id(self):
+        self.client_folder_id = self.clientfolder(self.account_id)['clientFolderId']
+        return self.client_folder_id
+
+    def _do_request(self, call_path, parameters={},method='get',type='json'):
         """
-        # Remove api_sig from params if it's present, otherwise it will ruin the signature.
-        if params.has_key('api_sig'):
-            del params['api_sig']
-        
-        params_string = ''.join(map(lambda x:x + str(params[x]), sorted(params)))
-        string_to_sign = ''.join((self.shared_secret, call_path, params_string))
-        signature = md5.new(string_to_sign).hexdigest()
-        self.log.debug(u"String to sign: '%s' Signature: '%s'" % (string_to_sign, signature))
-        return signature
-        
-    def _do_request(self, call_path, parameters={}):
-        """
-        Performs an API request and returns the resultant XML document as an
+        Performs an API request and returns the resultant json object.
+        If type='xml' is passed in, returns XML document as an
         xml.etree.ElementTree node. An Exception is thrown if the operation 
         results in an error response from iContact, or if there is no
         authentication information available (ie login has not been called)        
                 
         This method does all the hard work for API operations: building the 
-        URL path; signing the request; sending the request to iContact; 
+        URL path; adding auth headers; sending the request to iContact; 
         evaluating the response; and parsing the respones to an XML node.
         """
         # Check whether this method call was a retry that exceeds the retry limit
         if self.retry_count > self.max_retry_count:
             raise ExcessiveRetriesException("Exceeded maximum retry count (%d)" % self.max_retry_count)
-        
         params = dict(parameters)
-        
-        # Parameter set must always include the API Key
-        params.update(api_key=self.api_key)
-        
-        # All API operations except login also require the authentication 
-        # token and sequence values obtained with a prior login operation.
-        if not call_path.startswith('auth/login'):
-            if not self.token:
-                # Client is not logged in, do so now
-                self.retry_count += 1
-                self.log.debug(u"Login attempt %d of %d" % (self.retry_count, self.max_retry_count))
-                self.login()
-            params.update(api_tok=self.token, api_seq=self.sequence)
-        
-        # Generate the request's signature and add to parameters
-        params.update(api_sig=self._calc_signature(call_path, params))
-        
-        # PUT messages include the 'api_put' parameter
-        if params.has_key('api_put'):
-            api_put = params['api_put']
-            # Remove this parameter from params, so it isn't included in the URL
-            del(params['api_put'])
+        data = None
+
+        if method.lower() == 'get' and len(params) > 0:
+            url = "%s%s?%s" % (self.ICONTACT_API_URL, call_path, urllib.urlencode(params))
         else:
-            api_put = None
-        
-        url = "%s%s?%s" % (self.ICONTACT_API_URL, call_path, urllib.urlencode(params))        
-        self.log.debug(u"Invoking API method %s with URL: %s" % (api_put and 'PUT' or 'GET', url))
+            url = "%s%s" % (self.ICONTACT_API_URL, call_path)
+            data = simplejson.dumps(params)
+
+        self.log.debug(u"Invoking API method %s with URL: %s" % (method, url))
+
+        if type == 'xml':
+            type_header = 'text/xml'
+        else:
+            type_header = 'application/json'
+        headers = {'Accept':type_header,
+                   'Content-Type':type_header,
+                   'Api-Version':self.api_version,
+                   'Api-AppId':self.api_key,
+                   'Api-Username':self.username, 
+                   'API-Password':self.password }
                 
-        if api_put:
+        # TODO: try request for urllib2.HTTPError for 503 to do rate limit retry
+
+        if method.lower() != 'get':
             # Perform a PUT request
-            self.log.debug(u'PUT Request body: %s' % api_put)
+            self.log.debug(u'%s Request %s body: %s' % (method, url, data))
             scheme, host, path, params, query, fragment = urlparse.urlparse(url)
-            conn = httplib.HTTPConnection(host, 80)            
-            conn.request('PUT', path + '?' + query, api_put)
+            conn = httplib.HTTPSConnection(host, 443)            
+            conn.request(method.upper(), path , data, headers)
             response = conn.getresponse()
+            self.log.debug("response.msg=%s headers=%s" % (response.msg, response.getheaders(),))
         else:
             # Perform a GET request
-            response = urllib.urlopen(url)        
+            req = urllib2.Request(url, None, headers)
+            self.log.debug("GET headers=%s url=%s" % (req.headers,url))
+            response = urllib2.urlopen(req)
 
-        xml = ElementTree.fromstring(response.read())
-        self.log.debug(u'Response body:\n%s' % ElementTree.tostring(xml))
-            
-        if xml.get('status') != 'success':
-            error_code = xml.find('error_code').text
-            if error_code == '503':
-                # We have been rate-limited, wait for a little while and try again.
-                # TODO: Use a more sophisticated delay/backoff strategy?
-                self.retry_count += 1
-                self.log.warn(u"Exceeded iContact API rate limit of 1 request per second, " + \
-                        "will perform retry %d of %d after a short delay" \
-                        % (self.retry_count, self.max_retry_count))
-                time.sleep(random.random() * self.retry_count) # Simplistic retry backoff algorithm
-                return self._do_request(call_path, params)
-            elif error_code == '401':
-                # Hacky test of the reason for auth failure. We can only recover from auth failures
-                # due to invalid/expired tokens. Other situations, such as an auth failure caused 
-                # by accessing a resource owned by someone else, cannot be recovered from.
-                error_message = xml.find('error_message').text
-                if error_message != 'Authorization problem.  Access not allowed.':
-                    raise ClientException("Unrecoverable authentication error for %s: %s - %s" % \
-                        (call_path, error_code, error_message))                    
-                
-                # Client is not logged in, or the authorization has gone stale. Log in again.
-                time.sleep(random.random() * self.retry_count) # Simplistic retry backoff algorithm
-                self.retry_count += 1
-                self.log.warn(u"Login attempt %d of %d" % (self.retry_count, self.max_retry_count))
-                self.login()
-                return self._do_request(call_path, params)
-            else:
-                raise ClientException("Unrecoverable error for %s: %s - %s" %\
-                    (call_path, error_code, xml.find('error_message').text))
+        if type == 'xml':
+            xml = ElementTree.fromstring(response.read())
+            self.log.debug(u'Response body:\n%s' % (ElementTree.tostring(xml),))
+        else:
+            # type is json
+            jsondata = response.read()
+            self.log.debug(u"json response=\n%s" % (jsondata,))
+            xml = simplejson.loads(jsondata)
+
         # Reset retry count to 0 since we have a successful response
         self.retry_count = 0                
         return xml        
@@ -249,479 +207,130 @@ class IContactClient(object):
         results['contacts'] = contacts
         return results
     
-    def login(self):    
+    def account(self, index=0):
         """
-        Logs in to the iContact API system and obtains a tuple containing
-        a token string and a sequence integer that can be used to authenticate
-        the client in susequent API operations. 
-        
-        The token and sequence values are stored in the `token` and `sequence`
-        class member variables, and are also returned as a tuple.
-        
-        There is no need to call this method directly, as this client will
-        automatically log in if/when necessary.
-        
-        NOTE: This method cannot log in to iContact accounts with multiple 
-        client folders.
+        Returns the first account object in the accounts dictionary.
+        Url: /icp/a/
         """
-        xml = self._do_request('auth/login/%s/%s' % (self.username, self.md5_password))
+        accountobj = self._do_request('a', type='json')
+
+        return accountobj['accounts'][index]
+
+    def clientfolders(self, account_id):
+        """
+        Returns the clientfolders object.
+        Url: /icp/a/{accountId}/c
+        """
+        result = self._do_request('a/%s/c' % (account_id,), type='json')
+        self.log.debug("clientfolders: %s" % (result,))
+        return result
+
+    def clientfolder(self, account_id, index=0):
+        """ 
+        Returns the first clientfolder, or the provided index.
+        """
+        return self.clientfolders(account_id)['clientfolders'][index]
         
-        # Store the authentication token and sequence values for use in subsequent operations.
-        self.token = xml.find('auth/token').text
-        self.sequence = int(xml.find('auth/seq').text)
-        self.log.debug(u'Client authenticated. Token: %s  Sequence: %d' % (self.token, self.sequence))
-        
-        # If an authentication handler is available, notify it of the latest credentials
-        if self.auth_handler:
-            self.auth_handler.set_credentials(self.token, self.sequence)
-                    
-        return (self.token, self.sequence)
+
+    def _required_values(self, account_id, client_folder_id):
+        if account_id is None:
+            if self.account_id is None:
+                self.account_id = self._get_account_id()
+            account_id = self.account_id
+        if client_folder_id is None:
+            if self.client_folder_id is None:
+                self.client_folder_id = self._get_client_folder_id()
+            client_folder_id = self.client_folder_id
+        return account_id, client_folder_id
+
+
+    def search_contacts(self, params, account_id=None, client_folder_id=None):
+        """
+        If account_id or client_folder_id is None, then use the default (first) one.
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+
+        p = ""
+        for k in params:
+            if len(p) > 0:
+                p += "&"
+            p += "%s=%s" % (k,params[k])
+
+        result = self._do_request('a/%s/c/%s/contacts/?%s' % (account_id, client_folder_id, p), type='json')
+        self.log.debug("search_contacts(%s)=%s" % (p, result))
+        return result
+
+
+    def lists(self, params=None, account_id=None, client_folder_id=None):
+        """
+        Returns iContact Lists
+        params is a dictionary
+          * method = get|delete|post|put
+          * account_id
+          * client_folder_id
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+
+        result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id))
+
+        return result
     
-    def lists(self):
-        """
-        Returns iContact Lists as an array of tuples, each of which contains
-        a list identifier (int) and URL fragment (str). For example::
-          [(1, '/list/1'), (3, '/list/3')]
-        """
-        xml = self._do_request('lists')
-        lists = []
-        for list in xml.findall('lists/list'):
-            id = int(list.get('id'))
-            href = list.get('{%s}href' % self.NAMESPACE)
-            lists.append((id, href))
-        return lists
-    
-    def list(self, list_id):
+    def list(self, list_id, account_id=None, client_folder_id=None):
         """
         Returns a dictionary of information about the iContact List 
-        identified by the given id number. The dictionary includes:
-        - id (int)                 - href (str)         
-        - name (str)               - description (str)        
-        - ownerreceipt (Boolean)   - systemwelcome (Boolean)
-        - signupwelcome (Boolean)  - welcome_html (str)
-        - welcome_text (str)       - optin_html (str)
-        - optin_text (str)
+        identified by the given id number.
         """
-        xml = self._do_request('list/%s' % list_id)
-        
-        list = xml.find('list')
-        return dict(id=int(list.get('id')) , href=list.get('{%s}href' % self.NAMESPACE), \
-            name=list.find('name').text, description=list.find('description').text, \
-            ownerreceipt=list.find('ownerreceipt').text == '1', \
-            systemwelcome=list.find('systemwelcome').text == '1', \
-            signupwelcome=list.find('signupwelcome').text == '1', \
-            welcome_html=list.find('welcome_html').text, 
-            welcome_text=list.find('welcome_text').text, 
-            optin_html=list.find('optin_html').text, 
-            optin_text=list.find('optin_text').text)
-        
-    def campaigns(self):
-        """
-        Returns iContact Campaigns as an array of tuples, each of which contains
-        a campaign identifier (int) and URL fragment. For example::
-          [(1, '/campaign/1'), (3, '/campaign/3')]
-        """
-        xml = self._do_request('campaigns')
-        lists = []
-        for list in xml.findall('campaigns/campaign'):
-            id = int(list.get('id'))
-            href = list.get('{%s}href' % self.NAMESPACE)
-            lists.append((id, href))
-        return lists
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
-    def campaign(self, campaign_id):
-        """
-        Returns a dictionary of information about the iContact Campaign 
-        identified by the given id number. The dictionary includes:
-        - id (int)                  - href (str)         
-        - name (str)                - description (str)        
-        - fromname (str)            - fromemail (str)
-        - street (str)              - city (str)
-        - state (str)               - zip (str)
-        - country (str)             - archivebydefault (Boolean)              
-        - publicarchiveurl (str)    - useaccountaddress (Boolean)
-        """
-        xml = self._do_request('campaign/%s' % campaign_id)
+        result = self._do_request('a/%s/c/%s/lists/%s/' % (account_id,client_folder_id, list_id))
 
-        campaign = xml.find('campaign')
-        return dict(id=int(campaign.get('id')), \
-            href=campaign.get('{%s}href' % self.NAMESPACE), \
-            name=campaign.find('name').text, \
-            description=campaign.find('description').text, \
-            fromname=campaign.find('fromname').text, \
-            fromemail=campaign.find('fromemail').text, \
-            street=campaign.find('street').text, \
-            city=campaign.find('city').text, \
-            state=campaign.find('state').text, \
-            zip=campaign.find('zip').text, \
-            country=campaign.find('country').text, \
-            publicarchiveurl=campaign.find('publicarchiveurl').text, \
-            archivebydefault=campaign.find('archivebydefault').text == '1', \
-            useaccountaddress=campaign.find('useaccountaddress').text == '1')
+        return result
 
-    def contacts(self, **kwargs):
-        """
-        Returns iContact contacts that match given constraints as an array of 
-        tuples, each of which contains a contact identifier (int) and URL 
-        fragment. For example::
-          [(1, '/contact/1'), (3, '/contact/3')]
+    def create_list(self, name, email_owner_on_change, welcome_on_manual_add,
+                    welcome_on_signup_add, welcome_message_id, description=None, 
+                    account_id=None, client_folder_id=None):
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
         
-        If you provide constraints to this method, only contacts that match
-        those constraints will be returned, otherwise all contacts will be
-        returned. Constraints can include '*' wildcard characters.
-        
-        Valid constraints can use any contact field (see contact.__doc__) 
-        and the comparison value is not case-sensitive. For example::
-          email=username@somewhere.com
-          email=*@somewhere.com
-          lname=Jones
-          fname=terry
-          state=nsw
-        """
-        xml = self._do_request('contacts', kwargs)
-        
-        contacts = []
-        for list in xml.findall('contact'):
-            id = int(list.get('id'))
-            href = list.get('{%s}href' % self.NAMESPACE)
-            contacts.append((id, href))
-        return contacts
+        params = dict(name=name, 
+                      emailOwnerOnChange=email_owner_on_change,
+                      welcomeOnManualAdd=welcome_on_manual_add,
+                      welcomeOnSignupAdd=welcome_on_signup_add,
+                      welcomeMessageId=welcome_message_id)
+        if description:
+            params['description'] = description
 
-    def contact(self, contact_id):
-        """
-        Returns a dictionary of information about the iContact contact 
-        identified by the given id number. The dictionary includes the
-        following fields (only * items are always present):
-        * email (str)               * contact_id (int)
-        - fname (str)               - lname (str)                           
-        - prefix (str)              - suffix (str)
-        - business (str)            - address1 (str)
-        - address2 (str)            - city (str)
-        - state (str)               - zip (str)
-        - phone (str)               - fax (str)              
-        - custom_fields_href (str)  - subscriptions_href (str)
-        """
-        xml = self._do_request('contact/%s' % contact_id)
+        result = self._do_request('a/%s/c/%s/lists' % (account_id,client_folder_id), 
+                                  parameters=params, method='post')
 
-        contact = xml.find('contact')
-        return dict(
-            contact_id=int(contact.get('id')), \
-            fname=contact.find('fname').text, \
-            lname=contact.find('lname').text, \
-            email=contact.find('email').text, \
-            prefix=contact.find('prefix').text, \
-            suffix=contact.find('suffix').text, \
-            business=contact.find('business').text, \
-            address1=contact.find('address1').text, \
-            address2=contact.find('address2').text, \
-            city=contact.find('city').text, \
-            state=contact.find('state').text, \
-            zip=contact.find('zip').text, \
-            phone=contact.find('phone').text, \
-            fax=contact.find('fax').text, \
-            custom_fields_href=contact.find('custom_fields').get('{%s}href' % self.NAMESPACE), \
-            subscriptions_href=contact.find('subscriptions').get('{%s}href' % self.NAMESPACE))
+        return result
+        
+    def move_subscriber(self, old_list, contact_id, new_list, account_id=None, client_folder_id=None):
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
-    def add_update_contact(self, contact_details):
-        """
-        Adds a contact to iContact, or updates the details for an existing contact.
-        Provide the contact's details as a dictionary and the corresponding detail
-        items will be added or updated. If 'contact_id' is provided, this method
-        updates an existing contact, otherwise it creates a new contact. 
-        In both cases the method returns a tuple containing the contact's id 
-        (which may be new if the contact was created) and href path.
+        params = dict(listId=new_list)
         
-        Here are the key names that you can provide in the dictionary (* items --
-        i.e. email -- are always required):        
-        - contact_id (int)          - fname (str)         
-        - lname (str)               * email (str)        
-        - prefix (str)              - suffix (str)
-        - business (str)            - address1 (str)
-        - address2 (str)            - city (str)
-        - state (str)               - zip (str)
-        - phone (str)               - fax (str)              
-        - custom_fields_href (str)  - subscriptions_href (str)
-        
-        Example usage::
-          # Create a new contact
-          client.add_update_contact(dict(email='newemail@address.com', prefix='Mr', lname='Jones'))
-        
-          # Update an existing contact's email address
-          contact = client.contact(1234)        
-          contact['email'] = 'updateemail@address.com'
-          client.add_update_contact(contact)        
-        """
-        call_path = 'contact'
-        
-        if contact_details.get('contact_id', ''):
-            # We are updating an existing contact, not adding a new one.
-            call_path += '/%s' % contact_details['contact_id']
-            contact_id = contact_details['contact_id']
-        else:
-            contact_id = None
-        
-        # Build an XML document to represent contact's details.
-        contact = Element("contact")
-        if contact_id:
-            contact.attrib['id'] = str(contact_id)
-        def maybe_add_node(detail_name):
-            if detail_name in contact_details:
-                s = SubElement(contact, detail_name)
-                s.text = contact_details[detail_name]
-        maybe_add_node('fname')    
-        maybe_add_node('lname')    
-        maybe_add_node('email')    
-        maybe_add_node('prefix')    
-        maybe_add_node('suffix')    
-        maybe_add_node('business')    
-        maybe_add_node('address1')    
-        maybe_add_node('address2')    
-        maybe_add_node('city')    
-        maybe_add_node('state')    
-        maybe_add_node('zip')    
-        maybe_add_node('phone')    
-        maybe_add_node('fax')    
-                
-        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(contact)})
-        contact = xml.find('result/contact')
-        return (int(contact.get('id')), contact.get('{%s}href' % self.NAMESPACE))
-        
-    def contact_change_subscription(self, contact_id, list_id, subscribed):
-        """
-        Subscribe or unsubscribe a Contact from a List. If the `subscribed` 
-        parameter is True, the contact will be subscribed to the given list, 
-        otherwise the contact will be unsubscribed from the list.
-        """
-        # Build an XML document to represent the contact's subscription status
-        call_path = 'contact/%s/subscription/%s' % (contact_id, list_id)
-        root = Element("subscription")
-        root.attrib['id'] = str(list_id)
-        s = SubElement(root, "status")
-        s.text = subscribed and 'subscribed' or 'unsubscribed'
+        result = self._do_request('a/%s/c/%s/subscriptions/%s_%s' % (account_id, client_folder_id,
+                                                                     old_list, contact_id),
+                                  parameters=params,
+                                  method='put')
 
-        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(root)})
-        subscription = xml.find('result/subscription')
-        return (int(subscription.get('id')), subscription.get('{%s}href' % self.NAMESPACE))        
-        
-    def contact_custom_fields(self, contact_id):
-        """
-        Returns a list of a contact's custom fields, if any, where each 
-        field is represented as a dictionary with the following keys:
-        - name (str)                - public_name (str)
-        - type (str)                - value (str)
-        """
-        xml = self._do_request('contact/%s/custom_fields' % contact_id)
+        return result
 
-        fields = []
-        for field in xml.findall('contact/custom_fields/custom_field'):
-            fields.append(dict(name=field.get('name'), \
-                public_name=field.get('formal_name'), \
-                type=field.get('type'), \
-                value=field.find('value').text))
-        return fields
+    def create_contact(self, name, account_id=None, client_folder_id=None, **kwargs):
+        """
+        Creates the contact and returns the contact object.
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        params = dict(contact=kwargs)
+        params['contact']['email']=name
+        if 'status' not in params['contact']:
+            params['contact']['status'] = 'normal'
+        
+        result = self._do_request('a/%s/c/%s/contacts/' % (account_id, client_folder_id),
+                                  parameters=params,
+                                  method='post')
 
-    def contact_subscriptions(self, contact_id, list_id=None):
-        """
-        Returns a list of a contact's subscriptions and current status, 
-        where each item in the list is a dictionary with the following keys:
-        - id (int)  - subscribed (Boolean)    - status (str)
-            
-        If you provide the optional `list_id` parameter, the method will
-        only retrieve details about that specific list subscription.
-        """
-        call_path = 'contact/%s/subscriptions' % contact_id
-        if list_id:
-            call_path += '/%s' % list_id
-        xml = self._do_request(call_path)
-
-        subs = []
-        for sub in xml.findall('contact/subscription'):
-            subs.append(dict( \
-                id=int(sub.get('id')), \
-                status=sub.find('status').text, \
-                subscribed=sub.find('status').text == 'subscribed'))
-        return subs
-
-    def message(self, message_id):
-        """
-        Returns the details of a message:s
-        - id (int)            - subject (str)    - campaign_id (int)
-        - created_date (str)  - type (str)       - status (str)
-        - body_html (str)     - body_text (str)
-            
-        NOTE: This API method is not documented in the official iContact
-        API documentation, but it works...
-        """
-        xml = self._do_request('message/%s' % message_id)
-        message = xml.find('message')
-        return dict(
-            id=int(message.get('id')),
-            subject=message.find('subject').text,
-            campaign_id=int(message.find('campaign').text),
-            created_date=parse(message.find('created').text),
-            type=message.find('type').text,
-            status=message.find('status').text,
-            body_html=message.find('html_body').text,
-            body_text=message.find('text_body').text,
-        )
-
-    def create_message(self, campaign_id, subject, body_html, body_text):
-        """
-        Create a new message associated with the given campaign. This method
-        creates a message in iContact and returns a tuple containing the 
-        message's identifier (int) and href. 
-        
-        This method does *not* send the message or associate it with any lists,
-        use the `schedule_message` method to do this.
-
-        Example usage::        
-          # Create a new message in campaign 123
-          message = client.create_message(campaign_id=123,
-              subject='Message subject', body_html='<h1>Message body</h1>', 
-              body_text="Message body")
-          message_id = message[0]
-        """
-        # Build an XML document to represent the new message
-        root = Element("message")
-        s = SubElement(root, "subject")
-        s.text = subject
-        s = SubElement(root, "campaign")
-        s.text = str(campaign_id)
-        s = SubElement(root, "text_body")
-        s.text = body_text
-        s = SubElement(root, "html_body")
-        s.text = body_html
-
-        xml = self._do_request('message', {'api_put': ElementTree.tostring(root)})
-        
-        message = xml.find('result/message')
-        return (int(message.get('id')), message.get('{%s}href' % self.NAMESPACE))
-        
-    def schedule_message(self, message_id, list_ids, utc_datetime, archive=True):
-        """
-        Schedule an existing message to be sent to one or more iContact lists at
-        a given time. The scheduled time 'utc_datetime' parameter *must* be given
-        in UTC format or the scheduled send time will be wrong. If the 'archive'
-        parameter is True the message will be archived (though I don't think 
-        archiving is actually set up for any OA lists?)
-                
-        You can only schedule a message once. To review the scheduled time for a
-        message, or to change its schedule, you will need to go to the iContact
-        web interface.        
-        
-        Example usage::
-          # Schedule a message (123) to be sent to lists 456 and 789 in 1 minute
-          send_datetime_utc = datetime.utcnow() + relativedelta(minutes=1)
-          client.schedule_message(message_id=123, list_ids=[456,789], 
-              archive=True, utc_datetime=send_datetime_utc)                
-        """
-        try: 
-            iter(list_ids)
-        except TypeError: 
-            # Someone probably provided a single id, fix it.
-            list_ids = [list_ids]
-        
-        # If provided datetime is not timezone-aware, modify it to be in the 
-        # UTC timezone with a zero offset
-        if utc_datetime.tzinfo == None:
-            utc_datetime = utc_datetime.replace(tzinfo=FixedOffset(0))
-        
-        # Calculate corresponding time for iContact's servers (UTC -04:00)
-        ic_datetime = utc_datetime.astimezone(FixedOffset(-4 * 60))
-        
-        # Build an XML document to represent the message sending schedule
-        root = Element("message")
-        root.attrib['id'] = str(message_id)
-        sending_info = SubElement(root, "sending_info")
-        sending_info.attrib['time'] = ic_datetime.strftime('%a, %d %b %Y %H:%M:%S %z')
-        channels = SubElement(sending_info, "channels")
-        channels.attrib['archive'] = str(archive).lower()
-        channels.attrib['category'] = 'hidden' # What does the category mean? Do we need to care?
-        for id in list_ids:
-            s = SubElement(channels, "list")
-            s.attrib['id'] = str(id)
-        # We could add "segment" nodes here, if we need these?
-        # We could add "feed" nodes here, if we need these?
-        
-        call_path = 'message/%s/sending_info' % message_id
-        xml = self._do_request(call_path, {'api_put': ElementTree.tostring(root)})        
-        return (message_id, xml.find('results').get('{%s}href' % self.NAMESPACE))
-        
-    def message_delivery_details(self, message_id):
-        """
-        Returns the delivery details of a message that has been sent, with
-        similar information to that returned by the 'message_stats' method.
-        This method returns the following details:
-        - id (int)            
-        - href (str)
-        - channels (list) - We only look for List items, not Feeds or Segments.
-          - list id (int)
-          - list href (str)
-          - list name (str)
-          - recipient count (int)
-        - stats (dict)
-          - bounces: count, percent, href
-          - unsubscribed: count, percent, href
-          - opens: count, unique, percent, href
-          - clicks: count, uniaue, percent, href
-          - forwards: count, percent, href
-          - released: count, percent
-          - comments: count, percent
-          - complaints: count, percent
-
-        NOTE: This API method is not documented in the official iContact
-        API documentation, but it works...
-        """
-        xml = self._do_request('message/%s/sending_info/summary' % message_id)
-        
-        stats_node = xml.find('message/sending_info/stats')
-        results = self._parse_stats(stats_node)
-        
-        channels = []
-        for c in xml.findall('.//channels'):
-            for l in c.findall('list'):
-                channels.append(dict(
-                    type='list', id=int(l.get('id')), 
-                    href=l.get('{%s}href' % self.NAMESPACE),
-                    name=l.find('name').text, 
-                    count=int(l.find('count').text)
-                ))                
-            # We could handle "segment" nodes here, do we need these?
-            # We could handle "feed" nodes here, do we need these?                
-        results['channels'] = channels
-        return results
-
-    def message_stats(self, message_id, kind=None):
-        """
-        Returns statistics for a Message that was sent by iContact, including
-        the following kinds: opens, clicks, bounces, unsubscribes, 
-        forwards. There is also additional information included in the summary: 
-        released, comments, and complaints - these are different from the 
-        'kind' statistics because you cannot retrieve the corresponding 
-        contact list.
-        
-        If no `kind` parameter is provided, all the statistics are returned
-        but there is no information about which contacts performed the various
-        action types.
-        
-        If a `kind` parameter is provided, all the summary statistics are
-        returned in the same way, but the result will include a list of the
-        contacts who performed that action in the 'contacts' dictionary field.
-        
-        For example, to list the summary statistics for message 1234::
-          client.message_stats(204715)
-        
-        To retrieve the list of contacts who clicked links in message 1234::
-          client.message_stats(204715, 'clicks')['contacts']                
-        """
-        call_path = 'message/%s/stats' % message_id
-        if kind:
-            call_path += '/%s' % kind
-        xml = self._do_request(call_path)
-        
-        stats_node = xml.find('message/stats')
-        results = self._parse_stats(stats_node)        
-        return results
+        return result 
 
 
 class FixedOffset(tzinfo):

@@ -7,6 +7,7 @@ Requirements
 ------------
 - Python 2.5+
 - dateutil library (http://labix.org/python-dateutil)
+- simplejson (either from django, or standalone install)
 
 References
 ----------
