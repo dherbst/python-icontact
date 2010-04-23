@@ -6,7 +6,7 @@ from icontact.tests import settings
 class ClientTestCase(unittest.TestCase):
 
     def setUp(self):
-        pass
+        IContactClient.ICONTACT_API_URL = IContactClient.ICONTACT_SANDBOX_API_URL
 
 
     def test_account(self):

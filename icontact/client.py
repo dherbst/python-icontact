@@ -51,8 +51,8 @@ class ClientException(Exception):
 class IContactClient(object):
     """Perform operations on the iContact API."""
     
-    #ICONTACT_API_URL = 'https://app.icontact.com/icp/'
-    ICONTACT_API_URL = 'https://app.sandbox.icontact.com/icp/'
+    ICONTACT_API_URL = 'https://app.icontact.com/icp/'
+    ICONTACT_SANDBOX_API_URL = 'https://app.sandbox.icontact.com/icp/'
     NAMESPACE = 'http://www.w3.org/1999/xlink'
                 
     def __init__(self, api_key, username, password, 
