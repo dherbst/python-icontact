@@ -31,6 +31,17 @@ from xml.etree.ElementTree import Element, SubElement
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
+def json_to_obj(json):
+    if isinstance(json, list):
+        json = [json_to_obj(x) for x in json]
+    if not isinstance(json, dict):
+        return json
+    class Object(object):
+        pass
+    o = Object()
+    for k in json:
+        o.__dict__[k] = json_to_obj(json[k])
+    return o
 
 class ExcessiveRetriesException(Exception):
     """
@@ -92,11 +103,11 @@ class IContactClient(object):
         self.retry_count = 0
 
     def _get_account_id(self):
-        self.account_id = self.account()['accountId']
+        self.account_id = self.account().accountId
         return self.account_id
 
     def _get_client_folder_id(self):
-        self.client_folder_id = self.clientfolder(self.account_id)['clientFolderId']
+        self.client_folder_id = self.clientfolder(self.account_id).clientFolderId
         return self.client_folder_id
 
     def _do_request(self, call_path, parameters={},method='get',type='json'):
@@ -153,17 +164,18 @@ class IContactClient(object):
             response = urllib2.urlopen(req)
 
         if type == 'xml':
-            xml = ElementTree.fromstring(response.read())
-            self.log.debug(u'Response body:\n%s' % (ElementTree.tostring(xml),))
+            result = ElementTree.fromstring(response.read())
+            self.log.debug(u'Response body:\n%s' % (ElementTree.tostring(result),))
         else:
             # type is json
             jsondata = response.read()
             self.log.debug(u"json response=\n%s" % (jsondata,))
-            xml = simplejson.loads(jsondata)
+            result = simplejson.loads(jsondata)
+            result = json_to_obj(result)
 
         # Reset retry count to 0 since we have a successful response
         self.retry_count = 0                
-        return xml        
+        return result
 
     def _parse_stats(self, node):
         """
@@ -214,7 +226,7 @@ class IContactClient(object):
         """
         accountobj = self._do_request('a', type='json')
 
-        return accountobj['accounts'][index]
+        return accountobj.accounts[index]
 
     def clientfolders(self, account_id):
         """
@@ -229,7 +241,7 @@ class IContactClient(object):
         """ 
         Returns the first clientfolder, or the provided index.
         """
-        return self.clientfolders(account_id)['clientfolders'][index]
+        return self.clientfolders(account_id).clientfolders[index]
         
 
     def _required_values(self, account_id, client_folder_id):
@@ -316,13 +328,16 @@ class IContactClient(object):
 
         return result
 
-    def create_contact(self, name, account_id=None, client_folder_id=None, **kwargs):
+    def create_contact(self, email, account_id=None, client_folder_id=None, **kwargs):
         """
         Creates the contact and returns the contact object.
+        email - required
+        kwargs - prefix, firstName, lastName, suffix, street, street2, city, state, postalCode
+               - phone, fax, business, status
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
         params = dict(contact=kwargs)
-        params['contact']['email']=name
+        params['contact']['email']=email
         if 'status' not in params['contact']:
             params['contact']['status'] = 'normal'
         
@@ -330,7 +345,41 @@ class IContactClient(object):
                                   parameters=params,
                                   method='post')
 
-        return result 
+        return result
+
+
+    def create_subscription(self, contact_id, list_id, status='normal', account_id=None, client_folder_id=None):
+        """ 
+        Creates the subscription for the contact.
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        data = dict(subscription=dict(contactId=contact_id,listId=list_id, status=status))
+        result = self._do_request('a/%s/c/%s/subscriptions/' % (account_id, client_folder_id),
+                                  parameters=data,
+                                  method='post')
+        return result
+
+    def create_message(self, subject, message_type, account_id=None, client_folder_id=None, **kwargs):
+        """
+        Creates a message.  Note, the campaignId is required.
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        message = dict(subject=subject, messageType=message_type)
+        message.update(kwargs)
+        data = dict(message=message)
+
+        result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id),
+                                  parameters=data,
+                                  method='post')
+        return result
+        
+
+    def messages(self, account_id=None, client_folder_id=None):
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id))
+        return result
+        
+        
 
 
 class FixedOffset(tzinfo):
