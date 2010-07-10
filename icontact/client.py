@@ -72,8 +72,8 @@ class IContactClient(object):
     ICONTACT_SANDBOX_API_URL = 'https://app.sandbox.icontact.com/icp/'
     NAMESPACE = 'http://www.w3.org/1999/xlink'
                 
-    def __init__(self, api_key, username, password, 
-        auth_handler=None, max_retry_count=5):
+    def __init__(self, api_key, username, password, auth_handler=None,
+                 max_retry_count=5, account_id=None, client_folder_id=None, url=ICONTACT_API_URL):
         """
         - api_key: the API Key assigned for the OA iContact client
         - username: the iContact web site login username
@@ -102,11 +102,12 @@ class IContactClient(object):
         self.log = logging.getLogger('icontact')
         self.max_retry_count = max_retry_count
 
-        self.account_id = None
-        self.client_folder_id = None
+        self.account_id = account_id
+        self.client_folder_id = client_folder_id
         
         # Track number of retries we have performed
         self.retry_count = 0
+        self.url = url
 
     def _get_account_id(self):
         self.account_id = self.account().accountId
@@ -135,9 +136,9 @@ class IContactClient(object):
         data = None
 
         if method.lower() == 'get' and len(params) > 0:
-            url = "%s%s?%s" % (self.ICONTACT_API_URL, call_path, urllib.urlencode(params))
+            url = "%s%s?%s" % (self.url, call_path, urllib.urlencode(params))
         else:
-            url = "%s%s" % (self.ICONTACT_API_URL, call_path)
+            url = "%s%s" % (self.url, call_path)
             data = simplejson.dumps(params)
 
         self.log.debug(u"Invoking API method %s with URL: %s" % (method, url))
