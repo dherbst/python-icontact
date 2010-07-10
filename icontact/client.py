@@ -25,8 +25,14 @@ import urlparse
 import logging
 
 from datetime import datetime, tzinfo, timedelta
-from xml.etree import ElementTree
-from xml.etree.ElementTree import Element, SubElement
+
+# python 2.5+ has ElementTree included in it's core
+try:
+    from xml.etree import ElementTree
+    from xml.etree.ElementTree import Element, SubElement
+except ImportError:
+    from elementtree import ElementTree
+    from elementtree.ElementTree import Element, SubElement
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta

@@ -5,7 +5,7 @@ API operations
 
 Requirements
 ------------
-- Python 2.5+
+- Python 2.4+
 - dateutil library (http://labix.org/python-dateutil)
 - simplejson (either from django, or standalone install)
 
