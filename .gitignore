@@ -1,1 +1,3 @@
-icontact/tests/settings.py
+*~
+*.pyc
+*.egg-info
