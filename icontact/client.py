@@ -117,7 +117,7 @@ class IContactClient(object):
         self.client_folder_id = self.clientfolder(self.account_id).clientFolderId
         return self.client_folder_id
 
-    def _do_request(self, call_path, parameters={},method='get',type='json'):
+    def _do_request(self, call_path, parameters={}, method='get', type='json'):
         """
         Performs an API request and returns the resultant json object.
         If type='xml' is passed in, returns XML document as an
@@ -385,9 +385,21 @@ class IContactClient(object):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
         result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id))
         return result
-        
-        
 
+    def send(self, messageId, includeListIds, account_id=None,
+                   client_folder_id=None, **kwargs):
+        """
+        Sends a message.
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        alert = dict(messageId=messageId, includeListIds=','.join(includeListIds))
+        alert.update(kwargs)
+        data = dict(send=alert)
+        
+        result = self._do_request('a/%s/c/%s/sends/' % (account_id, client_folder_id),
+                                  parameters=data,
+                                  method='post')
+        return result
 
 class FixedOffset(tzinfo):
     """
