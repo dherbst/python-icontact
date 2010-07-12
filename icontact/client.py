@@ -293,7 +293,7 @@ class IContactClient(object):
         result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id))
 
         return result
-    
+ 
     def list(self, list_id, account_id=None, client_folder_id=None):
         """
         Returns a dictionary of information about the iContact List 
@@ -322,7 +322,17 @@ class IContactClient(object):
                                   parameters=params, method='post')
 
         return result
-        
+
+    def segments(self, account_id=None, client_folder_id=None):
+        """
+        Returns iContact Segments
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+
+        result = self._do_request('a/%s/c/%s/segments/' % (account_id,client_folder_id))
+
+        return result
+
     def move_subscriber(self, old_list, contact_id, new_list, account_id=None, client_folder_id=None):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
