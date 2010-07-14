@@ -318,7 +318,7 @@ class IContactClient(object):
         if description:
             params['description'] = description
 
-        result = self._do_request('a/%s/c/%s/lists' % (account_id,client_folder_id), 
+        result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id), 
                                   parameters=params, method='post')
 
         return result
@@ -330,6 +330,33 @@ class IContactClient(object):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
         result = self._do_request('a/%s/c/%s/segments/' % (account_id,client_folder_id))
+
+        return result
+
+    def create_segment(self, name, listId, description=None, account_id=None,
+                       client_folder_id=None):
+        """Creates segment"""
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        
+        params = dict(name=name, listId=listId)
+        if description:
+            params['description'] = description
+
+        result = self._do_request('a/%s/c/%s/segments/' % (account_id,client_folder_id),
+                                  parameters=params, method='post')
+
+        return result
+
+    def create_criterion(self, segmentId, fieldName, operator, values,
+                         account_id=None, client_folder_id=None):
+        """Creates single criterion for a given segment"""
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        
+        params = dict(fieldName=fieldName, operator=operator, values=values)
+        
+        result = self._do_request('a/%s/c/%s/segments/%s/criteria/' % (
+            account_id, client_folder_id, segmentId),
+            parameters=params, method='post')
 
         return result
 
