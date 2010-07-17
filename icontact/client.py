@@ -423,10 +423,10 @@ class IContactClient(object):
         result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id))
         return result
 
-    def send(self, messageId, includeListIds, account_id=None,
+    def create_send(self, messageId, includeListIds, account_id=None,
                    client_folder_id=None, **kwargs):
         """
-        Sends a message.
+        Creates a send.
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
         alert = dict(messageId=messageId, includeListIds=','.join(includeListIds))
@@ -436,6 +436,30 @@ class IContactClient(object):
         result = self._do_request('a/%s/c/%s/sends/' % (account_id, client_folder_id),
                                   parameters=data,
                                   method='post')
+        return result
+
+    def delete_send(self, sendId, account_id=None, client_folder_id=None):
+        """
+        Deletes send.
+        """
+        account_id, client_folder_id = self._required_values(account_id,
+                                                             client_folder_id)
+        
+        result = self._do_request('a/%s/c/%s/sends/%s' %
+                                  (account_id, client_folder_id, sendId),
+                                  method='delete')
+        return result
+
+    def get_send(self, sendId, account_id=None, client_folder_id=None):
+        """
+        Gets send.
+        """
+        account_id, client_folder_id = self._required_values(account_id,
+                                                             client_folder_id)
+        
+        result = self._do_request('a/%s/c/%s/sends/%s' %
+                                  (account_id, client_folder_id, sendId),
+                                  method='get')
         return result
 
 class FixedOffset(tzinfo):
