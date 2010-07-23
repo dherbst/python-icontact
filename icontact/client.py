@@ -336,6 +336,13 @@ class IContactClient(object):
     def create_segment(self, name, listId, description=None, account_id=None,
                        client_folder_id=None):
         """Creates segment"""
+        
+        """ TODO: this is just a temporarily note that segment creation is not
+        working with icontact.com remote API, this is confirmed issue and we're
+        waiting for icontact.com support team to fix this. They promissed us
+        to fix it as soon as possible ;)
+        """
+        
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
         
         params = dict(name=name, listId=listId)
