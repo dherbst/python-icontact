@@ -300,7 +300,9 @@ class IContactClient(object):
         In the json returned below, and object is created with attributes for each key.
         Example:
           {'list':{'listId':'123123', 'name':'name', 'description':'', 'emailOwnerOnChange':'','welcomeOnManualAdd':'','welcomeOnSignupAdd':'','welcomeMessageId':'123123'}}
-        
+          >>> mylist = client.list(123123)
+          >>> mylist.list.listId
+          u'123123'
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
