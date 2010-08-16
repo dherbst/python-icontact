@@ -296,8 +296,11 @@ class IContactClient(object):
  
     def list(self, list_id, account_id=None, client_folder_id=None):
         """
-        Returns a dictionary of information about the iContact List 
-        identified by the given id number.
+        Returns an object representing the iContact List identified by the given id number.
+        In the json returned below, and object is created with attributes for each key.
+        Example:
+          {'list':{'listId':'123123', 'name':'name', 'description':'', 'emailOwnerOnChange':'','welcomeOnManualAdd':'','welcomeOnSignupAdd':'','welcomeMessageId':'123123'}}
+        
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
