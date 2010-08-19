@@ -435,6 +435,18 @@ class IContactClient(object):
         result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id))
         return result
 
+    def get_message(self, messageId, account_id=None, client_folder_id=None):
+        """
+        Gets message.
+        """
+        account_id, client_folder_id = self._required_values(account_id,
+                                                             client_folder_id)
+        
+        result = self._do_request('a/%s/c/%s/messages/%s' %
+                                  (account_id, client_folder_id, messageId),
+                                  method='get')
+        return result
+
     def create_send(self, messageId, includeListIds, account_id=None,
                    client_folder_id=None, **kwargs):
         """
