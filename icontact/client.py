@@ -184,6 +184,13 @@ class IContactClient(object):
         self.retry_count = 0                
         return result
 
+    def _get_query_string(self, params={}):
+        if params:
+            query_string = '?' + '&'.join([k+'='+urllib.quote(str(v)) for (k,v) in params.items()])
+        else:
+            query_string = ''
+        return query_string
+
     def _parse_stats(self, node):
         """
         Parses statistics information from a 'stats' XML node that will
@@ -235,12 +242,12 @@ class IContactClient(object):
 
         return accountobj.accounts[index]
 
-    def clientfolders(self, account_id):
+    def clientfolders(self, account_id, filters=None):
         """
         Returns the clientfolders object.
         Url: /icp/a/{accountId}/c
         """
-        result = self._do_request('a/%s/c' % (account_id,), type='json')
+        result = self._do_request('a/%s/c%s' % (account_id, self._get_query_string(filters)), type='json')
         self.log.debug("clientfolders: %s" % (result,))
         return result
 
@@ -280,7 +287,7 @@ class IContactClient(object):
         return result
 
 
-    def lists(self, params=None, account_id=None, client_folder_id=None):
+    def lists(self, params=None, account_id=None, client_folder_id=None, filters=None):
         """
         Returns iContact Lists
         params is a dictionary
@@ -290,7 +297,8 @@ class IContactClient(object):
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
-        result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id))
+        result = self._do_request('a/%s/c/%s/lists/%s' % (account_id,client_folder_id,
+                                  self._get_query_string(filters)))
 
         return result
  
@@ -328,13 +336,14 @@ class IContactClient(object):
 
         return result
 
-    def segments(self, account_id=None, client_folder_id=None):
+    def segments(self, account_id=None, client_folder_id=None, filters=None):
         """
         Returns iContact Segments
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
-        result = self._do_request('a/%s/c/%s/segments/' % (account_id,client_folder_id))
+        result = self._do_request('a/%s/c/%s/segments/%s' % (account_id,client_folder_id,
+                                  self._get_query_string(filters)))
 
         return result
 
@@ -403,6 +412,15 @@ class IContactClient(object):
 
         return result
 
+    def delete_contact(self,contact_id, account_id=None, client_folder_id=None):
+        """
+        Deletes the contact and returns the result (an empty list)
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        result = self._do_request('a/%s/c/%s/contacts/%s' % (account_id, client_folder_id,
+            contact_id), method='delete')
+
+        return result
 
     def create_subscription(self, contact_id, list_id, status='normal', account_id=None, client_folder_id=None):
         """ 
@@ -413,6 +431,17 @@ class IContactClient(object):
         result = self._do_request('a/%s/c/%s/subscriptions/' % (account_id, client_folder_id),
                                   parameters=data,
                                   method='post')
+        return result
+
+    def subscriptions(self, account_id=None, client_folder_id=None, filters=None):
+        """
+        Returns iContact Subscriptions
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+
+        result = self._do_request('a/%s/c/%s/subscriptions/%s' % (account_id,client_folder_id,
+                                  self._get_query_string(filters)))
+
         return result
 
     def create_message(self, subject, message_type, account_id=None, client_folder_id=None, **kwargs):
@@ -430,9 +459,10 @@ class IContactClient(object):
         return result
         
 
-    def messages(self, account_id=None, client_folder_id=None):
+    def messages(self, account_id=None, client_folder_id=None, filters=None):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
-        result = self._do_request('a/%s/c/%s/messages/' % (account_id, client_folder_id))
+        result = self._do_request('a/%s/c/%s/messages/%s' % (account_id, client_folder_id,
+                                  self._get_query_string(filters)))
         return result
 
     def get_message(self, messageId, account_id=None, client_folder_id=None):
