@@ -1,11 +1,11 @@
 # Copyright 2008 Online Agility (www.onlineagility.com)
-# 
+#
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
 #    You may obtain a copy of the License at
-# 
+#
 #        http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 #    Unless required by applicable law or agreed to in writing, software
 #    distributed under the License is distributed on an "AS IS" BASIS,
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -52,7 +52,7 @@ def json_to_obj(json):
 
 class ExcessiveRetriesException(Exception):
     """
-    A standard exception that represents a potentially transient fault 
+    A standard exception that represents a potentially transient fault
     where an an iContact API client fails to perform an operation more
     than `self.max_retry_count` times.
     """
@@ -69,30 +69,30 @@ class IContactServerError(Exception):
 
 class IContactClient(object):
     """Perform operations on the iContact API."""
-    
+
     ICONTACT_API_URL = 'https://app.icontact.com/icp/'
     ICONTACT_SANDBOX_API_URL = 'https://app.sandbox.icontact.com/icp/'
     NAMESPACE = 'http://www.w3.org/1999/xlink'
-                
+
     def __init__(self, api_key, username, password, auth_handler=None,
                  max_retry_count=5, account_id=None, client_folder_id=None, url=ICONTACT_API_URL):
         """
         - api_key: the API Key assigned for the OA iContact client
         - username: the iContact web site login username
-        - password: 
-          This is the password registered for the API client, also known 
-          as the "API Application Password". It is *not* the standard 
+        - password:
+          This is the password registered for the API client, also known
+          as the "API Application Password". It is *not* the standard
           web site login password.
-        - max_retry_count: (Optional) Retry limit for logins or 
+        - max_retry_count: (Optional) Retry limit for logins or
           rate-limited operations.
         - auth_handler: (Optional) An object that implements two callback
-          methods that this client will invoke when it generates, or 
+          methods that this client will invoke when it generates, or
           requires, authentication credentials. The authentication handler
           object can be used to easily share credentials among multiple
           IContactClient instances.
-          
+
         The authentication handler object must implement credential
-        getter and setter methods::          
+        getter and setter methods::
           get_credentials() => (token,sequence)
           set_credentials(token,sequence)
         """
@@ -106,7 +106,7 @@ class IContactClient(object):
 
         self.account_id = account_id
         self.client_folder_id = client_folder_id
-        
+
         # Track number of retries we have performed
         self.retry_count = 0
         self.url = url
@@ -123,12 +123,12 @@ class IContactClient(object):
         """
         Performs an API request and returns the resultant json object.
         If type='xml' is passed in, returns XML document as an
-        xml.etree.ElementTree node. An Exception is thrown if the operation 
+        xml.etree.ElementTree node. An Exception is thrown if the operation
         results in an error response from iContact, or if there is no
-        authentication information available (ie login has not been called)        
-                
-        This method does all the hard work for API operations: building the 
-        URL path; adding auth headers; sending the request to iContact; 
+        authentication information available (ie login has not been called)
+
+        This method does all the hard work for API operations: building the
+        URL path; adding auth headers; sending the request to iContact;
         evaluating the response; and parsing the respones to an XML node.
         """
         # Check whether this method call was a retry that exceeds the retry limit
@@ -153,16 +153,16 @@ class IContactClient(object):
                    'Content-Type':type_header,
                    'Api-Version':self.api_version,
                    'Api-AppId':self.api_key,
-                   'Api-Username':self.username, 
+                   'Api-Username':self.username,
                    'API-Password':self.password }
-                
+
         # TODO: try request for urllib2.HTTPError for 503 to do rate limit retry
 
         if method.lower() != 'get':
             # Perform a PUT request
             self.log.debug(u'%s Request %s body: %s' % (method, url, data))
             scheme, host, path, params, query, fragment = urlparse.urlparse(url)
-            conn = httplib.HTTPSConnection(host, 443)            
+            conn = httplib.HTTPSConnection(host, 443)
             conn.request(method.upper(), path , data, headers)
             response = conn.getresponse()
             self.log.debug("response.status=%s msg=%s headers=%s" %
@@ -189,7 +189,7 @@ class IContactClient(object):
             raise IContactServerError(response_status, result.errors)
 
         # Reset retry count to 0 since we have a successful response
-        self.retry_count = 0                
+        self.retry_count = 0
         return result
 
     def _get_query_string(self, params={}):
@@ -202,9 +202,9 @@ class IContactClient(object):
     def _parse_stats(self, node):
         """
         Parses statistics information from a 'stats' XML node that will
-        be present in an iContact API response to the 
+        be present in an iContact API response to the
         message_delivery_details and message_stats methods. The parsed
-        information is returned as a dictionary of dictionaries.        
+        information is returned as a dictionary of dictionaries.
         """
         def summary_to_dict(stats_node):
             if stats_node == None:
@@ -215,8 +215,8 @@ class IContactClient(object):
                 href=stats_node.get('{%s}href' % self.NAMESPACE))
             if stats_node.get('unique'):
                 summary['unique'] = int(stats_node.get('unique'))
-            return summary            
-        
+            return summary
+
         results = dict(
             released=summary_to_dict(node.find('released')),
             bounces=summary_to_dict(node.find('bounces')),
@@ -226,7 +226,7 @@ class IContactClient(object):
             forwards=summary_to_dict(node.find('forwards')),
             comments=summary_to_dict(node.find('comments')),
             complaints=summary_to_dict(node.find('complaintss'))
-        )   
+        )
         contacts=[]
         for c in node.findall('*/contact'):
             contact = dict(
@@ -240,7 +240,7 @@ class IContactClient(object):
             contacts.append(contact)
         results['contacts'] = contacts
         return results
-    
+
     def account(self, index=0):
         """
         Returns the first account object in the accounts dictionary.
@@ -260,11 +260,11 @@ class IContactClient(object):
         return result
 
     def clientfolder(self, account_id, index=0):
-        """ 
+        """
         Returns the first clientfolder, or the provided index.
         """
         return self.clientfolders(account_id).clientfolders[index]
-        
+
 
     def _required_values(self, account_id, client_folder_id):
         if account_id is None:
@@ -312,7 +312,7 @@ class IContactClient(object):
                                   self._get_query_string(filters)))
 
         return result
- 
+
     def list(self, list_id, account_id=None, client_folder_id=None):
         """
         Returns an object representing the iContact List identified by the given id number.
@@ -330,11 +330,11 @@ class IContactClient(object):
         return result
 
     def create_list(self, name, email_owner_on_change, welcome_on_manual_add,
-                    welcome_on_signup_add, welcome_message_id, description=None, 
+                    welcome_on_signup_add, welcome_message_id, description=None,
                     account_id=None, client_folder_id=None):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
-        
-        params = dict(name=name, 
+
+        params = dict(name=name,
                       emailOwnerOnChange=email_owner_on_change,
                       welcomeOnManualAdd=welcome_on_manual_add,
                       welcomeOnSignupAdd=welcome_on_signup_add,
@@ -342,7 +342,7 @@ class IContactClient(object):
         if description:
             params['description'] = description
 
-        result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id), 
+        result = self._do_request('a/%s/c/%s/lists/' % (account_id,client_folder_id),
                                   parameters=params, method='post')
 
         return result
@@ -361,15 +361,15 @@ class IContactClient(object):
     def create_segment(self, name, listId, description=None, account_id=None,
                        client_folder_id=None):
         """Creates segment"""
-        
+
         """ TODO: this is just a temporarily note that segment creation is not
         working with icontact.com remote API, this is confirmed issue and we're
         waiting for icontact.com support team to fix this. They promissed us
         to fix it as soon as possible ;)
         """
-        
+
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
-        
+
         params = dict(name=name, listId=listId)
         if description:
             params['description'] = description
@@ -383,9 +383,9 @@ class IContactClient(object):
                          account_id=None, client_folder_id=None):
         """Creates single criterion for a given segment"""
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
-        
+
         params = dict(fieldName=fieldName, operator=operator, values=values)
-        
+
         result = self._do_request('a/%s/c/%s/segments/%s/criteria/' % (
             account_id, client_folder_id, segmentId),
             parameters=params, method='post')
@@ -396,7 +396,7 @@ class IContactClient(object):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
 
         params = dict(listId=new_list)
-        
+
         result = self._do_request('a/%s/c/%s/subscriptions/%s_%s' % (account_id, client_folder_id,
                                                                      old_list, contact_id),
                                   parameters=params,
@@ -416,7 +416,7 @@ class IContactClient(object):
         params['contact']['email']=email
         if 'status' not in params['contact']:
             params['contact']['status'] = 'normal'
-        
+
         result = self._do_request('a/%s/c/%s/contacts/' % (account_id, client_folder_id),
                                   parameters=params,
                                   method='post')
@@ -434,7 +434,7 @@ class IContactClient(object):
         return result
 
     def create_subscription(self, contact_id, list_id, status='normal', account_id=None, client_folder_id=None):
-        """ 
+        """
         Creates the subscription for the contact.
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
@@ -468,7 +468,7 @@ class IContactClient(object):
                                   parameters=data,
                                   method='post')
         return result
-        
+
 
     def messages(self, account_id=None, client_folder_id=None, filters=None):
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
@@ -482,7 +482,7 @@ class IContactClient(object):
         """
         account_id, client_folder_id = self._required_values(account_id,
                                                              client_folder_id)
-        
+
         result = self._do_request('a/%s/c/%s/messages/%s' %
                                   (account_id, client_folder_id, messageId),
                                   method='get')
@@ -497,7 +497,7 @@ class IContactClient(object):
         alert = dict(messageId=messageId, includeListIds=','.join(includeListIds))
         alert.update(kwargs)
         data = dict(send=alert)
-        
+
         result = self._do_request('a/%s/c/%s/sends/' % (account_id, client_folder_id),
                                   parameters=data,
                                   method='post')
@@ -509,7 +509,7 @@ class IContactClient(object):
         """
         account_id, client_folder_id = self._required_values(account_id,
                                                              client_folder_id)
-        
+
         result = self._do_request('a/%s/c/%s/sends/%s' %
                                   (account_id, client_folder_id, sendId),
                                   method='delete')
@@ -521,7 +521,7 @@ class IContactClient(object):
         """
         account_id, client_folder_id = self._required_values(account_id,
                                                              client_folder_id)
-        
+
         result = self._do_request('a/%s/c/%s/sends/%s' %
                                   (account_id, client_folder_id, sendId),
                                   method='get')
@@ -531,16 +531,16 @@ class FixedOffset(tzinfo):
     """
     Fixed offset value that extends the `datetime.tzinfo` object to
     calculate a time relative to UTC.
-    
-    This class is taken directly from the django module 
+
+    This class is taken directly from the django module
     `django.utils.tzinfo`
     """
     def __init__(self, offset):
         """
         Represent a time offset from UTC by a given number of minutes.
-        
+
         For example, to represent the iContact timezone (UTC -04:00)::
-            
+
             utc_datetime = datetime.utcnow()
             ic_datetime = utc_datetime.astimezone(FixedOffset(-4 * 60))
         """
