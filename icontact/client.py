@@ -43,7 +43,8 @@ def json_to_obj(json):
     if not isinstance(json, dict):
         return json
     class Object(object):
-        pass
+        def __repr__(self):
+            return 'icontact.client.Object(%s)' % repr(self.__dict__)
     o = Object()
     for k in json:
         o.__dict__[k] = json_to_obj(json[k])
