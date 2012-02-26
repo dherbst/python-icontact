@@ -59,12 +59,13 @@ class ExcessiveRetriesException(Exception):
     pass
 
 
-class ClientException(Exception):
-    """
-    A standard exception that represents an unrecoverable fault
-    during an iContact API operation.
-    """
-    pass
+class IContactServerError(Exception):
+    def __init__(self, http_status, errors):
+        self.http_status = http_status
+        self.errors = errors
+
+    def __str__(self):
+        return '%s: %s' % (self.http_status, '\n'.join(self.errors))
 
 class IContactClient(object):
     """Perform operations on the iContact API."""
@@ -164,12 +165,15 @@ class IContactClient(object):
             conn = httplib.HTTPSConnection(host, 443)            
             conn.request(method.upper(), path , data, headers)
             response = conn.getresponse()
-            self.log.debug("response.msg=%s headers=%s" % (response.msg, response.getheaders(),))
+            self.log.debug("response.status=%s msg=%s headers=%s" %
+                           (response.status, response.msg, response.getheaders(),))
+            response_status = response.status
         else:
             # Perform a GET request
             req = urllib2.Request(url, None, headers)
             self.log.debug("GET headers=%s url=%s" % (req.headers,url))
             response = urllib2.urlopen(req)
+            response_status = response.code
 
         if type == 'xml':
             result = ElementTree.fromstring(response.read())
@@ -180,6 +184,9 @@ class IContactClient(object):
             self.log.debug(u"json response=\n%s" % (jsondata,))
             result = simplejson.loads(jsondata)
             result = json_to_obj(result)
+
+        if response_status >= 400:
+            raise IContactServerError(response_status, result.errors)
 
         # Reset retry count to 0 since we have a successful response
         self.retry_count = 0                
