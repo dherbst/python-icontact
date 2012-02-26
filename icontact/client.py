@@ -278,11 +278,14 @@ class IContactClient(object):
         return account_id, client_folder_id
 
 
-    def search_contacts(self, params, account_id=None, client_folder_id=None):
+    def search_contacts(self, params=None, account_id=None, client_folder_id=None, **kwarg_params):
         """
         If account_id or client_folder_id is None, then use the default (first) one.
         """
         account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        if params is None:
+            params = {}
+        params.update(kwarg_params)
 
         p = ""
         for k in params:
@@ -420,7 +423,7 @@ class IContactClient(object):
 
         return result
 
-    def delete_contact(self,contact_id, account_id=None, client_folder_id=None):
+    def delete_contact(self, contact_id, account_id=None, client_folder_id=None):
         """
         Deletes the contact and returns the result (an empty list)
         """
