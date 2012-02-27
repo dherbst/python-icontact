@@ -423,6 +423,21 @@ class IContactClient(object):
 
         return result
 
+    def update_contact(self, contact_id, account_id=None, client_folder_id=None, **kwargs):
+        """
+        Updates a contact and returns the contact object
+        contact_id - required
+        kwargs - prefix, firstName, lastName, suffix, street, street2, city, state, postalCode
+               - phone, fax, business, status
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        params = dict(contact=kwargs)
+        params['contact']['contactId'] = contact_id
+        return self._do_request('a/%s/c/%s/contacts/' % (account_id, client_folder_id),
+                                  parameters=params,
+                                  method='post')
+
+
     def delete_contact(self, contact_id, account_id=None, client_folder_id=None):
         """
         Deletes the contact and returns the result (an empty list)
