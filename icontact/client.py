@@ -15,16 +15,13 @@ try:
     from django.utils import simplejson
 except ImportError:
     import simplejson
-import md5
-import random
-import time
 import httplib
 import urllib
 import urllib2
 import urlparse
 import logging
 
-from datetime import datetime, tzinfo, timedelta
+from datetime import tzinfo, timedelta
 
 # python 2.5+ has ElementTree included in it's core
 try:
@@ -35,7 +32,6 @@ except ImportError:
     from elementtree.ElementTree import Element, SubElement
 
 from dateutil.parser import parse
-from dateutil.relativedelta import relativedelta
 
 def json_to_obj(json):
     if isinstance(json, list):
