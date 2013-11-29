@@ -444,6 +444,15 @@ class IContactClient(object):
 
         return result
 
+    def contact_history(self, contact_id, account_id=None, client_folder_id=None, filters=None):
+        """
+        Returns action history for a contact
+        """
+        account_id, client_folder_id = self._required_values(account_id, client_folder_id)
+        result = self._do_request('a/%s/c/%s/contacts/%s/actions/%s' % (account_id, client_folder_id,
+            contact_id, self._get_query_string(filters)))
+        return result
+
     def create_subscription(self, contact_id, list_id, status='normal', account_id=None, client_folder_id=None):
         """
         Creates the subscription for the contact.
