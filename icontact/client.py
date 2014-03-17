@@ -287,7 +287,7 @@ class IContactClient(object):
         for k in params:
             if len(p) > 0:
                 p += "&"
-            p += "%s=%s" % (k,params[k])
+            p += "%s=%s" % (k,urllib.quote(params[k]))
 
         result = self._do_request('a/%s/c/%s/contacts/?%s' % (account_id, client_folder_id, p), type='json')
         self.log.debug("search_contacts(%s)=%s" % (p, result))
